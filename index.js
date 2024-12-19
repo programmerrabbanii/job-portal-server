@@ -1,12 +1,34 @@
 const express = require('express');
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const  jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
+
 const cors=require('cors')
 require('dotenv').config()
 const app=express()
 const port=process.env.PORT || 5000
 
 app.use(express.json())
-app.use(cors())
+app.use(cors({
+    origin: ['http://localhost:5173'],
+    credentials: true
+}))
+app.use(cookieParser())
+const verifyToken = (req, res, next) => {
+    const token = req.cookies?.token;
+    if (!token) {
+        return res.status(401).send({ error: 'Unauthorized! No token provided.' });
+    }
+    jwt.verify(token, process.env.ACCESS_TOKEN_SECRET,(err,decoded)=>{
+        if(err){
+            return res.status(401).send({message: 'unauthorized access'})
+        }
+        console.log('Token inside the verifyToken:', token);
+        next();
+    })
+    
+};
+
 
 
 const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.USER_PASS}@cluster0.2eupeky.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -28,6 +50,31 @@ async function run() {
     const jobsCollection=client.db('jobPortal').collection('jobsDB')
     const applyJobApplication=client.db('jobPortal').collection('apply')
 
+    // jwt secret programe
+    app.post('/jwt', async (req,res)=>{
+        const user=req.body;
+        const token=jwt.sign(user,process.env.ACCESS_TOKEN_SECRET,{
+            expiresIn: "5h",});
+
+         res
+         .cookie('token', token,{
+            httpOnly:true,
+            secure:false,
+         }) 
+         .send({success:true})  
+    })
+
+    app.post('/logout', (req,res)=>{
+        res
+        .clearCookie('token',{
+            httpOnly:true,
+            secure:false
+        })
+        send({success:true})
+    })
+
+
+    //  api related  programe
     app.get('/jobs', async (req,res)=>{
         const email=req.query.email;
         let query={}
@@ -50,7 +97,7 @@ async function run() {
         const result=await applyJobApplication.insertOne(sendApply)
         res.send(result)
     })
-    app.get('/job-applyed', async (req,res)=>{
+    app.get('/job-applyed', verifyToken, async (req,res)=>{
         const email=req.query.email;
         const query={applicant_email:email}
         const result=await applyJobApplication.find(query).toArray()
